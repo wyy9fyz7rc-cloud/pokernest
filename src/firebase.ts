@@ -1,6 +1,14 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth, signInAnonymously, onAuthStateChanged, type User } from "firebase/auth";
+import {
+  getAuth,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  type User,
+} from "firebase/auth";
 
 // Firebaseコンソールの「プロジェクトの設定」からコピーした値を .env.local に入れてください。
 // 詳しい手順は README.md を参照。
@@ -17,24 +25,47 @@ export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-/**
- * 今回のスプリントではログイン画面をまだ作らないため、匿名認証で自動サインインする。
- * これにより Firestore のセキュリティルールで「ログイン済みユーザーのみ許可」を
- * 最初から適用できる（あとでメールログインに差し替えても構造は変わらない）。
- */
-export function ensureSignedIn(): Promise<User> {
-  return new Promise((resolve, reject) => {
-    const unsub = onAuthStateChanged(
-      auth,
-      (user) => {
-        unsub();
-        if (user) {
-          resolve(user);
-        } else {
-          signInAnonymously(auth).then((cred) => resolve(cred.user)).catch(reject);
-        }
-      },
-      reject
-    );
-  });
+/** ログイン状態の変化を購読する（未ログインならuserはnull） */
+export function subscribeAuth(callback: (user: User | null) => void) {
+  return onAuthStateChanged(auth, callback);
+}
+
+/** 新規登録（メール＋パスワード＋表示名） */
+export async function signUpWithEmail(email: string, password: string, displayName: string) {
+  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  if (displayName) {
+    await updateProfile(cred.user, { displayName });
+  }
+  return cred.user;
+}
+
+/** ログイン（メール＋パスワード） */
+export async function signInWithEmail(email: string, password: string) {
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  return cred.user;
+}
+
+/** ログアウト */
+export function signOutUser() {
+  return signOut(auth);
+}
+
+/** Firebaseのエラーコードを日本語の分かりやすいメッセージに変換 */
+export function translateAuthError(code: string): string {
+  switch (code) {
+    case "auth/email-already-in-use":
+      return "このメールアドレスは既に登録されています。ログインをお試しください。";
+    case "auth/invalid-email":
+      return "メールアドレスの形式が正しくありません。";
+    case "auth/weak-password":
+      return "パスワードは6文字以上にしてください。";
+    case "auth/user-not-found":
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+      return "メールアドレスまたはパスワードが正しくありません。";
+    case "auth/too-many-requests":
+      return "試行回数が多すぎます。しばらく待ってから再度お試しください。";
+    default:
+      return "エラーが発生しました。もう一度お試しください。";
+  }
 }
